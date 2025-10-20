@@ -484,3 +484,329 @@ Summary:
 6. Whether to expose a minimal hosted dashboard in MVP or defer strictly to the metrics API.
    </unresolved_issues>
    </conversation_summary>
+
+   
+Questions:
+
+1. What specific customer segments and primary jobs-to-be-done are we targeting for the MVP (e.g., SaaS onboarding, lead capture, support intake), and which two use cases are P0?
+   Recommendation: Define 2–3 personas and write one-line JTBD + success metrics for each; gate MVP scope to P0 use cases with scenario-based acceptance criteria.
+
+2. How will embedding partners be onboarded to the CSP `frame-ancestors` allowlist, and do we need per-tenant overrides?
+   Recommendation: Ship a self-serve allowlist flow (per-tenant domains + wildcard policy with review), expose `GET/PUT /tenants/{id}/embed-origins`, and add runtime checks with clear error UI when an origin is not allowed.
+
+3. What is the exact idempotency de-duplication window we want (fixed 10 minutes vs. configurable), and should it vary by form risk profile?
+   Recommendation: Start with a fixed **10-minute** window platform-wide; make it configurable per form in v1.1 and return the effective window in `Rate-Limit-*` style headers.
+
+4. What pagination defaults and maximum query range should the Metrics API enforce for reliability and cost?
+   Recommendation: Set `pageSize=500` default (max 1,000), `maxRange=31 days`, `groupBy=hour|day`, and return `nextCursor` + `approxTotal` to guide dashboards.
+
+5. What is the desired UX and copy for token-budget exhaustion (banner, disabled chat, manual mode), and what recovery paths should be shown?
+   Recommendation: Standardize a banner with `Retry-After` + next reset timestamp, a “Continue in Form-Only Mode” CTA, and a “Contact Owner” link; log a distinct `token_budget_exhausted` event with tenant/form IDs.
+
+6. Which locales (if any) beyond English are in scope this quarter, and do we need RTL or locale-specific validation (names, phone formats)?
+   Recommendation: Launch **en-US** only; internationalize all user-visible strings now, normalize dates to ISO 8601 (UTC), and schedule **pl-PL** as the first expansion with a content freeze + translation QA in Q+1.
+
+7. Do we want a minimal hosted dashboard in MVP for non-engineers (metrics overview + latest submission status), or will API-only access suffice?
+   Recommendation: If at least one design partner is non-technical, include a **read-only dashboard** (metrics charts, token usage, recent errors) with tenant-scoped JWT; otherwise defer and provide a ready-made Postman collection + sample Grafana dashboard.
+
+8. How will `_ai.suggestions` be governed—who approves field whitelisting, and how are suggestions surfaced and audited?
+   Recommendation: Require explicit integrator whitelisting per field key; show “Apply AI suggestion” chips with change diffs; persist an audit trail (`approved_by`, timestamp) and include an `_ai.approvals[]` array in the envelope.
+
+9. Which LLM providers/regions are allowed (data residency, PII handling), and what is our fallback/timeout/retry policy under load or provider incidents?
+   Recommendation: Abstract provider via a policy-driven router (primary: regionally compliant model; fallback: cheaper model); set **2× retry with jitter**, **4s planning timeout**, circuit breaker per tenant, and redact/mask PII in prompts unless `include=transcript` is explicitly set.
+
+10. What are our target platform constraints (browser support, mobile web behavior) and performance enforcement mechanisms?
+    Recommendation: Support last 2 versions of Chromium/Firefox/Safari + Safari ≥16; enforce the **≤120 KB gzipped** budget with CI bundle guardrails, ship RUM beacons for TTI/CLS, and add synthetic checks (4G profile) to fail builds above **2.5s** first interaction.
+
+
+Answers:
+
+1. Define 2–3 personas and write one-line JTBD + success metrics for each; gate MVP scope to P0 use cases with scenario-based acceptance criteria.
+2. Single tenant only in MVP
+3. Fixed 10 minutes
+4. Set `pageSize=500` default (max 1,000), `maxRange=31 days`, `groupBy=hour|day`, and return `nextCursor` + `approxTotal` to guide dashboards.
+5. Standardize a banner with `Retry-After` + next reset timestamp, a “Continue in Form-Only Mode” CTA, and a “Contact Owner” link; log a distinct `token_budget_exhausted` event with tenant/form IDs.
+6. Launch **en-US** only; internationalize all user-visible strings now, normalize dates to ISO 8601 (UTC)
+7. No we dont need it in MVP
+8. Require explicit integrator whitelisting per field key; show “Apply AI suggestion” chips with change diffs; persist an audit trail (`approved_by`, timestamp) and include an `_ai.approvals[]` array in the envelope.
+9. Abstract provider via a policy-driven router (primary: regionally compliant model; fallback: cheaper model); set **2× retry with jitter**, **4s planning timeout**, circuit breaker per tenant, and redact/mask PII in prompts unless `include=transcript` is explicitly set.
+10. Support last 2 versions of Chromium/Firefox/Safari + Safari ≥16; enforce the **≤120 KB gzipped** budget with CI bundle guardrails, ship RUM beacons for TTI/CLS, and add synthetic checks (4G profile) to fail builds above **2.5s** first interaction.
+
+
+Questions:
+
+1. What concrete P0 use cases (2 max) do we commit to first launch (e.g., “Qualified Lead Capture” and “Trial Onboarding”) and which fields are mandatory for each?
+   Recommendation: Freeze two canonical schemas + guidance now; add scenario-based acceptance tests and golden payloads to CI.
+
+2. How will we manage the `frame-ancestors` allowlist for embedding—static list per tenant vs. runtime API?
+   Recommendation: For MVP single-tenant, ship a static allowlist in config + env var; document change procedure and add a runtime health check that fails closed on mismatch.
+
+3. What exact JWT lifetime and clock skew do we enforce (within the stated 1–2h, ±60s), and do we require `aud`/`iss` checks?
+   Recommendation: Set **TTL=90m**, skew **±60s**, require `aud` and `iss` validation, and log structured auth failures with redaction.
+
+4. Which scopes/roles are required to access Metrics and History APIs, and how are tokens provisioned for server-to-server calls?
+   Recommendation: Define two scopes now: `submissions.history:read` and `metrics:read`; issue tenant-scoped service tokens with rotation via JWKS kid rollover.
+
+5. What ETag/TTL and cache-busting rules apply to `GET /forms/{uuid}` and `GET /forms/{uuid}/submission`?
+   Recommendation: Keep `max-age=60` with `must-revalidate`; bump schema `version` on any change and include it in ETag; document integrator caching examples.
+
+6. What is the minimum viable event schema for observability (names, required fields), and which events are P0?
+   Recommendation: Standardize P0 events: `session_started`, `field_validated`, `clarification_prompted`, `submission_saved`, `token_budget_exhausted`, `auth_refreshed`, `rate_limited`; include tenant/form/session IDs and timestamps (ISO 8601 UTC).
+
+7. What privacy posture do we state in docs (PII categories allowed, DPA needs), given transcripts are gated but not redacted by default?
+   Recommendation: Publish a data handling matrix; default to masking emails/phones in logs; require DPA sign-off before enabling transcript inclusion via scope flag.
+
+8. What error copy and i18n keys do we finalize for validation, auth failure, token budget, and rate limit screens?
+   Recommendation: Author a small error copy spec now with key → default-string → accessibility note; add to SDK as a replaceable dictionary.
+
+9. Do we need guardrails for AI prompt “guidance” (max length, prohibited tokens), and how do we validate `allow_ai_fields=true` usage?
+   Recommendation: Cap guidance at **8k chars**, lint for secrets/PII patterns at publish-time, and require a non-empty whitelist before allowing AI fields in production.
+
+10. What release-readiness exit criteria and owners do we set per sprint (e.g., security, load, accessibility), and who signs off?
+    Recommendation: Create a RACI per gate (OWASP ASVS L2, WCAG 2.2 AA, load @ 10 RPS/token, dependency audit clean); assign DRIs and add a checklist to CI that blocks merge on failures.
+
+
+Answers:
+
+1. Freeze two canonical schemas + guidance now; add scenario-based acceptance tests and golden payloads to CI.
+2. For MVP single-tenant, ship a static allowlist in config + env var; document change procedure and add a runtime health check that fails closed on mismatch.
+3. Set **TTL=90m**, skew **±60s**, require `aud` and `iss` validation, and log structured auth failures with redaction.
+4. Metrics only on database - no acces via API
+5. Keep `max-age=60` with `must-revalidate`; bump schema `version` on any change and include it in ETag; document integrator caching examples.
+6. Standardize P0 events: `session_started`, `field_validated`, `clarification_prompted`, `submission_saved`, `token_budget_exhausted`, `auth_refreshed`, `rate_limited`; include tenant/form/session IDs and timestamps (ISO 8601 UTC).
+7.  Publish a data handling matrix; default to masking emails/phones in logs; require DPA sign-off before enabling transcript inclusion via scope flag.
+8. Author a small error copy spec now with key → default-string → accessibility note; add to SDK as a replaceable dictionary.
+9.  Cap guidance at **8k chars**, lint for secrets/PII patterns at publish-time, and require a non-empty whitelist before allowing AI fields in production.
+10. Create a RACI per gate (OWASP ASVS L2, WCAG 2.2 AA, load @ 10 RPS/token, dependency audit clean); assign DRIs and add a checklist to CI that blocks merge on failures.
+
+
+---
+
+You are an AI assistant whose task is to summarize a conversation about PRD (Product Requirements Document) planning for MVP and prepare a concise summary for the next development stage. In the conversation history you will find the following information:
+1. Project description
+2. Identified user problem
+3. Conversation history containing questions and answers
+4. Recommendations regarding PRD content
+
+Your task is to:
+1. Summarize the conversation history, focusing on all decisions related to PRD planning.
+2. Match the model's recommendations to the answers given in the conversation history. Identify which recommendations are relevant based on the discussion.
+3. Prepare a detailed conversation summary that includes:
+   a. Main functional requirements of the product
+   b. Key user stories and usage paths
+   c. Important success criteria and ways to measure them
+   d. Any unresolved issues or areas requiring further clarification
+4. Format the results as follows:
+
+<conversation_summary>
+<decisions>
+[List decisions made by the user, numbered].
+</decisions>
+
+<matched_recommendations>
+[List of the most relevant recommendations matched to the conversation, numbered]
+</matched_recommendations>
+
+<prd_planning_summary>
+[Provide a detailed summary of the conversation, including the elements listed in step 3].
+</prd_planning_summary>
+
+<unresolved_issues>
+[List any unresolved issues or areas requiring further clarification, if any exist]
+</unresolved_issues>
+</conversation_summary>
+
+The final result should contain only content in markdown format. Ensure that your summary is clear, concise, and provides valuable information for the next stage of creating the PRD.
+
+
+Summary:
+
+
+You are an experienced product manager whose task is to create a comprehensive Product Requirements Document (PRD) based on the following descriptions:
+
+<project_description>
+- User (probably external system) creates a from. In return it receives a UUID of the form. Payload of this request is a definition of form.
+- Form definition is a prompt to AI with required data description (some form of definition what we need to get from user).
+- User that is identified by e.x. JWT token can use this form (by UUID) to enter data.
+- Using added prompt to Handle AI conversation with user to gather data - AI should have some tools to generate simple form (possible fields will be defined by system).
+- Persist gathered data in some storage with relation to added propmpt (form definition).
+- Fetching data from storage (probably external system) by UUID of the form..
+</project_description>
+
+<project_details>
+<conversation_summary> <decisions>
+
+1. MVP ships a hosted web widget + lightweight embeddable script on a single origin with tight CSP and SRI.
+2. Two-pane UI (chat + dynamic form/summary) is P0 and prioritized.
+3. API lifecycle: `collecting` (ephemeral) → `submitted` (persisted); last valid submission overwrites previous.
+4. Single-tenant only in MVP.
+5. Form spec is hybrid: `{ metadata, schema (JSON Schema-lite), guidance (AI prompt) }`.
+6. JSON Schema-lite supports: `type`, `enum`, `format(email|uri|date|datetime)`, `minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `items`, `required`, `properties`.
+7. Submission envelope includes: `submissionId(UUIDv7)`, `formUuid`, `actorId (JWT sub ≤128)`, `occurredAt`, implicit `schemaVersion` and `aiVersion`, `confidence`, `rawTranscript`, `normalizedPayload`.
+8. Schema-first by default; optional AI-added fields only with `allow_ai_fields=true`; proposals live under `_ai.suggestions` and are stripped unless whitelisted.
+9. JWT-only auth via tenant JWKS; SDK handles `401 → onAuthNeeded() refresh → single retry`.
+10. UI can create/overwrite submissions and read form definitions; saved data is server-to-server only.
+11. `GET /forms/{uuid}/submission` returns latest valid submission; supports `ETag`, `If-None-Match`, `max-age=60`, `must-revalidate`.
+12. Historical submissions stored immutably for 30 days (configurable); elevated scope required; metadata-only by default with optional `include=data`.
+13. No file uploads and no autosave/drafts in MVP.
+14. Rate limits: 10 RPS/token (burst 20); schema ≤256 KB; transcript cap 8k tokens; repeated idempotent calls excluded from rate counts within the window.
+15. Idempotency & de-dupe: client sends `submissionClientId (UUIDv7)` + `Idempotency-Key`; **fixed 10-minute** de-dupe window.
+16. Token budget enforcement: on exhaustion show banner, disable chat, auto-switch to manual form; API returns `429_TOKEN_BUDGET` (where applicable).
+17. LLM config defaults per form: `temperature=0.2`, `maxClarifications=2`, `maxTokens=1024`; deterministic planner; after 2 clarifications → manual form.
+18. Localization: **en-US only** at launch; respect `Accept-Language`/`tz`; normalize dates to ISO-8601 (UTC).
+19. Privacy & security: encrypt at rest (KMS); access-audited transcripts; transcripts masked in logs/metrics by default; explicit `include=transcript` required.
+20. Observability events standardized (P0 set below); 30-day retention.
+21. SLOs: availability 99.9%, API p95 < 1.5s, data retention compliance.
+22. Storage indexing optimized incl. `forms_latest_submission` pointer table.
+23. Widget performance: bundle ≤120 KB gzipped; first interaction ≤2.5s on 4G; lazy-load AI modules; single-file embed with integrity hash.
+24. Security headers & embedding: sandboxed iframe, strict `frame-ancestors` allowlist, `X-Frame-Options: DENY` on non-widget routes, strict `postMessage` origin checks; no third-party cookies.
+25. Error taxonomy: `400_VALIDATION`, `401_UNAUTHORIZED`, `403_FORBIDDEN`, `404_NOT_FOUND`, `409_CONFLICT`, `422_UNPROCESSABLE`, `429_RATE_LIMIT`, `429_TOKEN_BUDGET`, `5xx`; machine-readable `details[]`; i18n keys; WCAG 2.2 AA.
+26. Environments: dev/stage/prod with distinct KMS/JWKS; sealed secrets; health/readiness probes; change control for schema tables.
+27. Delivery plan: three sprints (core → AI/validation/metrics → UI SDK/hardening/load & cost tests).
+28. Release gates: OWASP ASVS L2, dependency audit clean, WCAG 2.2 AA audit, load to 10 RPS/token (burst 20), OpenAPI + Postman + mock server, runbook.
+29. Personas finalized: Integration Engineer, Product/Growth Manager, Form Respondent; P0 use cases: Qualified Lead Capture, Trial Onboarding.
+30. **Freeze two canonical schemas + guidance now**; add scenario-based acceptance tests and golden payloads to CI.
+31. **CSP allowlist**: static per single-tenant via config/env; documented change procedure; runtime health check that fails closed on mismatch.
+32. **JWT parameters**: TTL **90 minutes**, skew **±60s**, enforce `aud` & `iss`; log structured/redacted auth failures.
+33. **Metrics access**: metrics stored in DB only for MVP (no public Metrics API).
+34. **Caching rules**: keep `max-age=60` + `must-revalidate`; bump `schema.version` on any change and include in ETag; provide integrator caching examples.
+35. **P0 events**: `session_started`, `field_validated`, `clarification_prompted`, `submission_saved`, `token_budget_exhausted`, `auth_refreshed`, `rate_limited`; include tenant/form/session IDs and ISO-8601 UTC timestamps.
+36. **Data handling matrix**: publish; mask emails/phones in logs by default; require DPA sign-off before enabling transcript inclusion via scope flag.
+37. **Error copy spec**: key → default string → accessibility note; SDK exposes replaceable dictionary.
+38. **Guidance guardrails**: cap guidance at **8k chars**; lint for secrets/PII at publish-time; require non-empty whitelist before enabling AI fields in prod.
+39. **LLM routing**: policy-driven router (primary: regionally compliant; fallback: cheaper); **2× retry with jitter**, **4s planning timeout**, tenant-level circuit breaker; redact/mask PII in prompts unless explicitly included.
+40. **Platform constraints**: support last 2 versions of Chromium/Firefox/Safari and Safari ≥16; enforce ≤120 KB gz via CI guardrails; RUM for TTI/CLS; synthetic checks (4G) fail builds >2.5s first interaction.
+41. **RACI & CI gates**: define DRIs per release gate; CI checklist blocks merges on failures.
+
+    </decisions>
+
+<matched_recommendations>
+
+1. Hybrid form spec with strict schema + free-form guidance.
+2. Schema-first with `_ai.suggestions` gated by whitelist and audit trail.
+3. Standardized submission envelope (UUIDv7, observability fields).
+4. Atomic overwrite lifecycle; no drafts in MVP.
+5. Hosted widget + two-pane UI; inline errors and “Apply AI suggestion” chips.
+6. JWT-only auth with refresh hook; strict `aud`/`iss` checks.
+7. Server-to-server reads; UI limited to create/overwrite + read form definition.
+8. Token budget handling (banner, manual fallback, distinct event).
+9. Rate limiting, idempotency (fixed 10-minute window), and de-duplication.
+10. Privacy posture (KMS, audit, masking; DPA for transcript inclusion).
+11. Tight CSP, iframe sandboxing, origin checks; static allowlist + health check.
+12. Performance budget and lazy-loading; CI bundle guardrails + synthetic checks.
+13. Observability via standardized events; DB-only metrics retention.
+14. Release checklist with OWASP/WCAG/load tests; RACI and CI gates.
+15. Guidance guardrails (8k cap, linting, whitelist requirement).
+16. LLM router with retries, timeout, circuit breaker, and PII masking.
+17. Caching strategy with ETag/versioning and integrator examples.
+18. Error taxonomy + SDK i18n/error copy dictionary.
+19. Personas, P0 use cases, acceptance tests, and golden payloads in CI.
+    </matched_recommendations>
+
+<prd_planning_summary>
+a. **Main functional requirements**
+
+* **Form management**: Create/read forms using hybrid spec; versioned schemas with ETag; guidance capped and linted.
+* **Two-pane collection**: Chat planner prioritizes required fields; live side-pane form/summary; inline validation; max 2 clarifications → manual form fallback.
+* **Submission handling**: Schema validation server-side; atomic overwrite; idempotency via `submissionClientId` + `Idempotency-Key` with fixed 10-minute window.
+* **Auth & security**: JWT TTL 90m, skew ±60s, enforce `aud`/`iss`; sandboxed iframe; static `frame-ancestors` allowlist; strict `postMessage` checks; no third-party cookies.
+* **Observability**: Emit P0 events with tenant/form/session IDs; DB-only metrics (no Metrics API in MVP); 30-day retention.
+* **Quotas & budgets**: Rate limit 10 RPS/token (burst 20); token budget banner + manual fallback; schema ≤256 KB; transcript ≤8k tokens.
+* **Performance & accessibility**: Widget ≤120 KB gz; first interaction ≤2.5s on 4G; WCAG 2.2 AA; en-US only; ISO-8601 UTC normalization.
+* **LLM orchestration**: Router (primary/fallback), 2× retry with jitter, 4s planning timeout, tenant circuit breaker; PII redaction unless explicitly included.
+
+b. **Key user stories & paths**
+
+1. **Integration Engineer** embeds widget and publishes form schema/guidance → validates via ETag/versioning → runs CI acceptance tests with golden payloads.
+2. **Respondent** completes chat prompts with inline validation and optional AI suggestion chips → summary pane confirms readiness → submit.
+3. **System** validates, dedupes within 10 minutes, persists latest submission, triggers webhooks (if configured), logs `submission_saved`.
+4. **Owner** reviews health via DB-backed metrics dashboards (internal), monitors P0 events and token budget exhaustion; adjusts guidance/whitelists.
+
+c. **Success criteria & measurement**
+
+* **User efficiency**: median completion ≤2 min; ≤2 clarification turns; ≥80% first-pass validity; ≤10% abandonment.
+* **Reliability**: availability 99.9%; API p95 <1.5s; de-dupe success >99.5%; auth refresh success rate tracked.
+* **Cost control**: ≤2% sessions hit token budget; token usage within per-form caps.
+* **Compliance/perf**: OWASP ASVS L2 pass; WCAG 2.2 AA audit pass; bundle ≤120 KB gz; TTI ≤2.5s on 4G.
+* **Observability**: P0 events delivered ≥99.9%; metrics completeness in DB ≥99%.
+
+d. **Unresolved issues / clarifications**
+
+* **Canonical schemas content**: finalize exact fields and validation rules for the two P0 flows (Lead Capture, Trial Onboarding).
+* **CSP allowlist values**: enumerate exact domains (and wildcard policy, if any) for the single tenant.
+* **Webhook semantics**: confirm delivery guarantees (at-least-once), retry schedule, and auth mechanism.
+* **Token budget reset source of truth**: specify calculation and timezone for banner “next reset”.
+* **History retention overrides**: define per-tenant overrides and request/approval process.
+* **DB-only metrics ops**: choose internal dashboarding stack, access controls, and refresh cadence; define schema for aggregations.
+* **i18n roadmap**: confirm when to add next locale (e.g., pl-PL) and required content freeze/QA steps.
+  </prd_planning_summary>
+
+<unresolved_issues>
+
+1. Exact field lists and validation for the two canonical P0 schemas.
+2. Concrete `frame-ancestors` allowlist entries for the tenant.
+3. Webhook delivery guarantees, retries, and authentication.
+4. Token budget reset computation and display rules.
+5. Policy for extending/overriding 30-day history retention.
+6. Internal metrics dashboard approach and controls (since no public API).
+7. Localization expansion timing and process beyond en-US.
+   </unresolved_issues>
+   </conversation_summary>
+</project_details>
+
+Follow these steps to create a comprehensive and well-organized document:
+
+1. Divide the PRD into the following sections:
+   a. Project Overview
+   b. User Problem
+   c. Functional Requirements
+   d. Project Boundaries
+   e. User Stories
+   f. Success Metrics
+
+2. In each section, provide detailed and relevant information based on the project description and answers to clarifying questions. Make sure to:
+    - Use clear and concise language
+    - Provide specific details and data as needed
+    - Maintain consistency throughout the document
+    - Address all points listed in each section
+
+3. When creating user stories and acceptance criteria
+    - List ALL necessary user stories, including basic, alternative, and edge case scenarios.
+    - Assign a unique requirement identifier (e.g., US-001) to each user story for direct traceability.
+    - Include at least one user story specifically for secure access or authentication, if the application requires user identification or access restrictions.
+    - Ensure that no potential user interaction is omitted.
+    - Ensure that each user story is testable.
+
+Use the following structure for each user story:
+- ID
+- Title
+- Description
+- Acceptance Criteria
+
+4. After completing the PRD, review it against this checklist:
+    - Is each user story testable?
+    - Are the acceptance criteria clear and specific?
+    - Do we have enough user stories to build a fully functional application?
+    - Have we included authentication and authorization requirements (if applicable)?
+
+5. PRD Formatting:
+    - Maintain consistent formatting and numbering.
+    - Do not use bold formatting in markdown ( ** ).
+    - List ALL user stories.
+    - Format the PRD in proper markdown.
+
+Prepare the PRD with the following structure:
+
+```markdown
+# Product Requirements Document (PRD) - {{app-name}}
+## 1. Product Overview
+## 2. User Problem
+## 3. Functional Requirements
+## 4. Product Boundaries
+## 5. User Stories
+## 6. Success Metrics
+```
+
+Remember to fill each section with detailed, relevant information based on the project description and our clarifying questions. Ensure the PRD is comprehensive, clear, and contains all relevant information needed for further product development.
+
+The final output should consist solely of the PRD in the specified markdown format, which you will save in the file .ai/prd.md
